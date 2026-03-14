@@ -5,6 +5,7 @@ const anthropic = new Anthropic({
 });
 
 const MODEL = "claude-sonnet-4-20250514";
+const MODEL_FAST = "claude-haiku-4-5-20251001";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -66,8 +67,8 @@ export interface AgentPipelineResult {
 
 export async function parseResume(resumeText: string): Promise<ParsedResume> {
   const response = await anthropic.messages.create({
-    model: MODEL,
-    max_tokens: 4096,
+    model: MODEL_FAST,
+    max_tokens: 2048,
     messages: [
       {
         role: "user",
@@ -132,7 +133,7 @@ export async function researchJobAndCompany(
 
   const response = await anthropic.messages.create({
     model: MODEL,
-    max_tokens: 8096,
+    max_tokens: 4096,
     tools: [
       {
         type: "web_search_20250305" as const,
@@ -142,105 +143,33 @@ export async function researchJobAndCompany(
     messages: [
       {
         role: "user",
-        content: `You are a professional career researcher. Analyze this job description and use web search to research the company and role thoroughly.
+        content: `You are a professional career researcher. Analyze this job description and use web search to research the company and role. Be concise.
 
 Job Description:
 ${jobDescription}
 
-Please research and gather:
-1. Company mission, values, culture, and recent news
-2. The company's products/services and tech stack
-3. What this role does day-to-day based on the job description and industry knowledge
-4. What makes a great candidate for this specific role
-5. Industry trends and buzzwords relevant to this position
-6. ATS keywords specific to this role and company
-7. The company's tone and communication style
-
-After your research, output ONLY a valid JSON object (no markdown, no explanation) with this exact structure:
+Research and output ONLY a valid JSON object (no markdown, no explanation):
 {
   "company": "Company name",
   "role": "Job title",
-  "companyOverview": "Detailed company overview from research",
-  "cultureAndValues": "Company culture and values",
-  "recentNews": "Recent company news or developments",
-  "techStack": "Technologies and tools the company uses",
-  "roleExpectations": "What this role involves day-to-day",
-  "idealCandidateProfile": "What great candidates for this role look like",
+  "companyOverview": "2-3 sentence company overview",
+  "cultureAndValues": "Key culture and values",
+  "recentNews": "One notable recent development",
+  "techStack": "Key technologies used",
+  "roleExpectations": "What this role involves",
+  "idealCandidateProfile": "Ideal candidate description",
   "atsKeywords": ["keyword1", "keyword2", "keyword3"],
-  "industryContext": "Relevant industry trends and context"
+  "industryContext": "Relevant industry context"
 }`,
       },
     ],
   });
 
-  // Extract final text from potentially multi-turn tool use response
+  // Extract final text — for server-side tools like web_search, results are in the text blocks
   let finalText = "";
   for (const block of response.content) {
     if (block.type === "text") {
       finalText = block.text;
-    }
-  }
-
-  // Handle tool_use responses that may need further processing
-  if (!finalText && response.stop_reason === "tool_use") {
-    // Continue conversation to get final JSON after tool use
-    const toolResults = [];
-    for (const block of response.content) {
-      if (block.type === "tool_use") {
-        toolResults.push({
-          type: "tool_result" as const,
-          tool_use_id: block.id,
-          content: "Search completed. Please now provide the structured JSON output based on your research.",
-        });
-      }
-    }
-
-    const followUp = await anthropic.messages.create({
-      model: MODEL,
-      max_tokens: 4096,
-      tools: [
-        {
-          type: "web_search_20250305" as const,
-          name: "web_search",
-        },
-      ],
-      messages: [
-        {
-          role: "user",
-          content: `You are a professional career researcher. Analyze this job description and use web search to research the company and role thoroughly.
-
-Job Description:
-${jobDescription}
-
-Research thoroughly and output ONLY a valid JSON object with this exact structure:
-{
-  "company": "Company name",
-  "role": "Job title",
-  "companyOverview": "Detailed company overview",
-  "cultureAndValues": "Company culture and values",
-  "recentNews": "Recent company news",
-  "techStack": "Technologies used",
-  "roleExpectations": "Day-to-day role activities",
-  "idealCandidateProfile": "Ideal candidate description",
-  "atsKeywords": ["keyword1", "keyword2"],
-  "industryContext": "Industry trends"
-}`,
-        },
-        {
-          role: "assistant",
-          content: response.content,
-        },
-        {
-          role: "user",
-          content: toolResults,
-        },
-      ],
-    });
-
-    for (const block of followUp.content) {
-      if (block.type === "text") {
-        finalText = block.text;
-      }
     }
   }
 
@@ -299,20 +228,23 @@ Rules:
     messages: [
       {
         role: "user",
-        content: `Here is the candidate's parsed resume:
+        content: `Candidate resume:
 ${JSON.stringify(parsedResume, null, 2)}
 
-Target Job Description:
+Job Description:
 ${jobDescription}
 
-Research Results About Company & Role:
-${JSON.stringify(research, null, 2)}
+Company Research:
+Company: ${research.company} | Role: ${research.role}
+Overview: ${research.companyOverview}
+Culture: ${research.cultureAndValues}
+Tech Stack: ${research.techStack}
+Role Expectations: ${research.roleExpectations}
+Ideal Candidate: ${research.idealCandidateProfile}
+ATS Keywords: ${research.atsKeywords.join(", ")}
+Industry: ${research.industryContext}
 
-ATS Keywords to naturally incorporate: ${research.atsKeywords.join(", ")}
-
-Please rewrite the resume tailored specifically for this role at ${research.company}.
-Output the resume as clean formatted text with clear sections.
-Format it as:
+Rewrite the resume tailored for this role at ${research.company}. Output clean formatted text:
 [CANDIDATE NAME]
 [Contact Info]
 
@@ -321,7 +253,6 @@ PROFESSIONAL SUMMARY
 
 PROFESSIONAL EXPERIENCE
 [Job Title] | [Company] | [Dates]
-• [bullet]
 • [bullet]
 
 EDUCATION
@@ -364,22 +295,20 @@ research on the company and role, write a compelling, human cover letter that:
     messages: [
       {
         role: "user",
-        content: `Candidate's Resume:
-${JSON.stringify(parsedResume, null, 2)}
+        content: `Candidate: ${parsedResume.name}
+Contact: ${parsedResume.contact.email || ""} | ${parsedResume.contact.phone || ""} | ${parsedResume.contact.location || ""}
+Summary: ${parsedResume.summary}
+Top experience: ${parsedResume.experience.slice(0, 2).map(e => `${e.title} at ${e.company}: ${e.bullets.slice(0, 2).join("; ")}`).join(" / ")}
+Skills: ${parsedResume.skills.slice(0, 10).join(", ")}
 
-Target Job Description:
-${jobDescription}
+Job: ${research.role} at ${research.company}
+Company: ${research.companyOverview}
+Culture: ${research.cultureAndValues}
+Recent news: ${research.recentNews}
+Role expectations: ${research.roleExpectations}
+Ideal candidate: ${research.idealCandidateProfile}
 
-Research Results About ${research.company}:
-Company Overview: ${research.companyOverview}
-Culture & Values: ${research.cultureAndValues}
-Recent News: ${research.recentNews}
-Role Expectations: ${research.roleExpectations}
-Ideal Candidate: ${research.idealCandidateProfile}
-
-Write a compelling cover letter for ${parsedResume.name} applying for the ${research.role} position at ${research.company}.
-
-Format:
+Write a compelling cover letter. Format:
 ${parsedResume.name}
 ${parsedResume.contact.email || ""} | ${parsedResume.contact.phone || ""} | ${parsedResume.contact.location || ""}
 
@@ -388,7 +317,7 @@ ${parsedResume.contact.email || ""} | ${parsedResume.contact.phone || ""} | ${pa
 Hiring Manager
 ${research.company}
 
-[4 paragraphs of compelling cover letter content]
+[4 paragraphs]
 
 Sincerely,
 ${parsedResume.name}`,
@@ -410,38 +339,31 @@ export async function runQualityCheck(
   research: ResearchResults
 ): Promise<{ resume: string; coverLetter: string; passed: boolean }> {
   const response = await anthropic.messages.create({
-    model: MODEL,
-    max_tokens: 8096,
+    model: MODEL_FAST,
+    max_tokens: 6000,
     messages: [
       {
         role: "user",
-        content: `You are a quality assurance editor. Review these two documents for a job application.
+        content: `Review and lightly polish these job application documents. Fix any awkward phrasing, ensure they sound human and professional.
 
-ORIGINAL CANDIDATE DATA (source of truth - nothing can be added that isn't here):
-${JSON.stringify(parsedResume, null, 2)}
+Known candidate facts (do NOT add anything not listed here):
+Name: ${parsedResume.name}
+Companies worked at: ${parsedResume.experience.map(e => e.company).join(", ")}
+Skills: ${parsedResume.skills.join(", ")}
+Target: ${research.role} at ${research.company}
 
-TAILORED RESUME:
+RESUME:
 ${tailoredResume}
 
 COVER LETTER:
 ${coverLetter}
 
-TARGET COMPANY: ${research.company}
-TARGET ROLE: ${research.role}
-
-Quality checks to perform:
-1. Verify no hallucinated content (no companies, titles, or skills not in original)
-2. Ensure both read naturally and professionally, not AI-sounding
-3. Confirm company-specific language is present
-4. Check that achievements are compelling and specific
-5. Make minor improvements to flow and word choice where needed
-
-Output ONLY a JSON object with this structure (no markdown):
+Output ONLY a JSON object (no markdown):
 {
   "passed": true,
-  "resume": "[full corrected resume text]",
-  "coverLetter": "[full corrected cover letter text]",
-  "notes": "Brief quality check notes"
+  "resume": "[full polished resume]",
+  "coverLetter": "[full polished cover letter]",
+  "notes": "Brief notes"
 }`,
       },
     ],
