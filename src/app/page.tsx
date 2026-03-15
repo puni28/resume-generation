@@ -252,6 +252,7 @@ function DocumentPreview({
 export default function HomePage() {
   const [resumeFile, setResumeFile] = useState<File | null>(null);
   const [jobDescription, setJobDescription] = useState("");
+  const [suggestions, setSuggestions] = useState("");
   const [progress, setProgress] = useState<ProgressState>({ step: "idle", message: "" });
   const [result, setResult] = useState<GenerationResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -311,7 +312,7 @@ export default function HomePage() {
       const response = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ resumeText, jobDescription }),
+        body: JSON.stringify({ resumeText, jobDescription, suggestions }),
         signal: abortRef.current.signal,
       });
 
@@ -368,6 +369,7 @@ export default function HomePage() {
     if (abortRef.current) abortRef.current.abort();
     setResumeFile(null);
     setJobDescription("");
+    setSuggestions("");
     setProgress({ step: "idle", message: "" });
     setResult(null);
     setError(null);
@@ -419,6 +421,7 @@ export default function HomePage() {
 
         {/* Input form */}
         {!isGenerating && !isDone && (
+          <>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
             {/* Resume upload */}
             <div>
@@ -479,6 +482,21 @@ export default function HomePage() {
               </p>
             </div>
           </div>
+
+          {/* Suggestions */}
+          <div className="mb-8">
+            <label className="block text-sm font-semibold text-slate-700 mb-2">
+              Additional Instructions <span className="font-normal text-slate-400">(optional)</span>
+            </label>
+            <textarea
+              value={suggestions}
+              onChange={(e) => setSuggestions(e.target.value)}
+              placeholder="e.g. Emphasize leadership experience · I'm switching careers from finance · Highlight Python and data skills · Keep it to one page · Use a more formal tone..."
+              rows={3}
+              className="w-full border border-slate-300 rounded-xl p-4 text-sm text-slate-700 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white transition-all placeholder:text-slate-400"
+            />
+          </div>
+          </>
         )}
 
         {/* Error message */}

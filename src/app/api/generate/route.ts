@@ -10,9 +10,10 @@ export async function POST(request: NextRequest) {
   const encoder = new TextEncoder();
 
   const body = await request.json();
-  const { resumeText, jobDescription } = body as {
+  const { resumeText, jobDescription, suggestions } = body as {
     resumeText: string;
     jobDescription: string;
+    suggestions?: string;
   };
 
   if (!resumeText || !jobDescription) {
@@ -41,7 +42,8 @@ export async function POST(request: NextRequest) {
           jobDescription,
           (step, message) => {
             send({ type: "progress", step, message });
-          }
+          },
+          suggestions
         );
 
         // Generate PDFs

@@ -206,7 +206,8 @@ function extractKeywords(text: string): string[] {
 export async function tailorResume(
   parsedResume: ParsedResume,
   jobDescription: string,
-  research: ResearchResults
+  research: ResearchResults,
+  suggestions?: string
 ): Promise<string> {
   const response = await anthropic.messages.create({
     model: MODEL,
@@ -243,7 +244,7 @@ Role Expectations: ${research.roleExpectations}
 Ideal Candidate: ${research.idealCandidateProfile}
 ATS Keywords: ${research.atsKeywords.join(", ")}
 Industry: ${research.industryContext}
-
+${suggestions ? `\nCandidate instructions: ${suggestions}` : ""}
 Rewrite the resume tailored for this role at ${research.company}. Output clean formatted text:
 [CANDIDATE NAME]
 [Contact Info]
@@ -277,7 +278,8 @@ CERTIFICATIONS (if any)
 export async function generateCoverLetter(
   parsedResume: ParsedResume,
   jobDescription: string,
-  research: ResearchResults
+  research: ResearchResults,
+  suggestions?: string
 ): Promise<string> {
   const response = await anthropic.messages.create({
     model: MODEL,
@@ -307,7 +309,7 @@ Culture: ${research.cultureAndValues}
 Recent news: ${research.recentNews}
 Role expectations: ${research.roleExpectations}
 Ideal candidate: ${research.idealCandidateProfile}
-
+${suggestions ? `\nCandidate instructions: ${suggestions}` : ""}
 Write a compelling cover letter. Format:
 ${parsedResume.name}
 ${parsedResume.contact.email || ""} | ${parsedResume.contact.phone || ""} | ${parsedResume.contact.location || ""}
@@ -390,7 +392,8 @@ Output ONLY a JSON object (no markdown):
 export async function runAgentPipeline(
   resumeText: string,
   jobDescription: string,
-  onProgress?: (step: string, message: string) => void
+  onProgress?: (step: string, message: string) => void,
+  suggestions?: string
 ): Promise<AgentPipelineResult> {
   const emit = (step: string, message: string) => {
     if (onProgress) onProgress(step, message);
@@ -403,10 +406,10 @@ export async function runAgentPipeline(
   const research = await researchJobAndCompany(jobDescription);
 
   emit("tailoring", "Tailoring your resume...");
-  const tailoredResume = await tailorResume(parsedResume, jobDescription, research);
+  const tailoredResume = await tailorResume(parsedResume, jobDescription, research, suggestions);
 
   emit("coverLetter", "Writing your cover letter...");
-  const coverLetter = await generateCoverLetter(parsedResume, jobDescription, research);
+  const coverLetter = await generateCoverLetter(parsedResume, jobDescription, research, suggestions);
 
   emit("qualityCheck", "Running quality check...");
   const { resume: finalResume, coverLetter: finalCoverLetter, passed } = await runQualityCheck(
